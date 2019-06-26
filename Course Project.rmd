@@ -1,0 +1,135 @@
+---
+title: "Prediction Assignment"
+author: "Jeroen van Rooij"
+date: "11 juni 2019"
+output: html_document
+---
+
+## Executive summary
+
+## Setup and Downloading Data 
+
+```{r message=FALSE}
+library(caret)
+library(skimr)
+library(ggcorrplot)
+
+
+```
+
+```{r, message=FALSE}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "training.csv")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "testing.csv")
+
+training <- read.csv("training.csv")
+testing <- read.csv("testing.csv")
+
+```
+
+
+## Executive summary 
+This code attempts to predict in which manner a barbell lift has been performed (Class A - E), using 19622 observations.  
+The data has been transformed to remove variables with little explanatory value and is transformed into Principal Components. The model itself is a Random Forest with 3-fold cross validation. The training set accuracy is 100%, which may be due to overfitting. However, the prediction on the test set is correct in 19 out of 20 times (95%) - therefore sufficiently accurate.  
+
+
+## Data prep and exploratory analysis 
+
+**Remove columns**  
+Some columns may have little predictive value.  
+* The first few columns are metadata such as index, subject, timestamp and window. These have little predictive value and are removed  
+
+```{r}
+metadata <- c(1,2,3,4,5,7)
+training <- training[, -metadata]
+testing <- testing[, - metadata]
+
+```
+
+
+
+* It appears there are many empty columns. Looking at the data, this is related to the variable "new_window" - where the columns show data when "new_window" = yes (406 cases). In 19261 cases, the values are either NA or blank. The code below deletes all columns that have 19261 blanks/NAs
+
+```{r}
+# Remove values with exactly 19216 NA's
+countna <- sapply(training, function(x) sum(is.na(x)))
+training <- training[, countna != 19216]
+testing <- testing[, countna != 19216]
+
+# Remove nearzerovars
+nearzerovars <- nearZeroVar(training)
+
+# Check which items are removed
+summary(training[,nearzerovars])
+
+# Remove columns
+training <- training[, - nearzerovars]
+testing <- testing[, - nearzerovars]
+```
+
+** Exploratory Analysis **  
+
+After removing the columns, there are still 53 variables remaining. The correlation between these variables could always be of interest. Due to the large number of variables, a heatmap could be more insightful than a table: 
+```{r}
+cortable <- round(cor(training[, 1:52]),2)
+#cortable[upper.tri(cortable, diag = TRUE)] <- ""
+cortable <- as.data.frame(cortable)
+
+ggcorrplot(cortable, method = "square", tl.cex = 5, tl.srt = 90)
+```
+
+From the heatmap, it appears that there are some sort of "clusters" that are highly correlated (close to +1 or -1).  
+Perhaps the number of variables can be reduced/combined by using Principal Components
+ 
+## Models
+
+For a prediction model, I have chosen to do a Random Forest. As stated in the previous section, the model is further preprocessed by using PCA.  
+The results are then measured using a confusion matrix. Less succesful models can be found in the appendix
+
+
+```{r, cache = TRUE}
+modelfit1 <- train(classe ~ . , data = training, preProcess="pca", 
+                  method = "rf", 
+                  trControl = trainControl(method = "cv", number = 3, allowParallel = TRUE))
+pred1 <- predict(modelfit1, training)
+confusionMatrix(pred1, training$classe)
+```
+
+The results show a 100% accuracy on the training set. However, this may of be due to overfitting of the data. The prediction on the test set is as follows: 
+
+```{R}
+
+prediction1 <- predict(modelfit1, testing[,-53])
+print(prediction1)
+```
+
+This is correct 19/20 times, thus 95%. 
+
+```{r}
+#head(training)
+#summary(training)
+#skimmed <- skim_to_wide(training)
+#print(skimmed)
+
+#cor(training)    
+```
+
+
+
+
+## Appendix
+
+Decision tree
+```{r, cache = TRUE}
+modelfit2 <- train(classe ~ . , data = training, method = "rpart")
+pred2 <- predict(modelfit2, training)
+accuracy2 <- table(pred2, training$classe)
+print(accuracy2)
+``` 
+
+Linear discriminant analysis
+```{r, cache = TRUE}
+modelfit3 <- train(classe ~ . , data = training, method = "lda", preProcess = c("center", "scale"))
+pred3 <- predict(modelfit3, training)
+accuracy3 <- table(pred3, training$classe)
+print(accuracy3)
+``` 
